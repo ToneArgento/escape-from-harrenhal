@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Escape from Harrenhal - v0.1.6</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      background-color: #121212;
+      color: #f0e6d2;
+      font-family: 'Cinzel', serif;
+      margin: 0;
+      padding: 20px;
+    }
+    #log {
+      background: #1e1e1e;
+      border: 1px solid #444;
+      padding: 10px;
+      height: 450px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+    }
+    .msg {
+      margin: 12px 0;
+      line-height: 1.6;
+    }
+    .player {
+      font-family: monospace;
+      color: #f4c542;
+    }
+    .dm {
+      font-family: 'Cinzel', serif;
+      color: #93d2f3;
+      font-size: 1.05rem;
+    }
+    .dm i {
+      color: #b3d9ff;
+      font-style: italic;
+    }
+    .btn-row {
+      margin-top: 8px;
+    }
+    .btn-inline {
+      display: inline-block;
+      padding: 6px 14px;
+      margin-right: 10px;
+      background: #333;
+      border: 1px solid #777;
+      color: #f8f0d4;
+      font-family: 'Cinzel', serif;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    #input-box {
+      display: flex;
+      gap: 10px;
+    }
+    input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      background: #222;
+      color: #fff;
+      border: 1px solid #555;
+      font-family: monospace;
+    }
+    button {
+      padding: 10px;
+      background: #444;
+      color: #fff;
+      border: 1px solid #666;
+      cursor: pointer;
+      font-family: 'Cinzel', serif;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🔥 Escape from Harrenhal - GPT Test (v0.1.6)</h1>
+  <div id="log"></div>
+
+  <div id="input-box" style="display: none;">
+    <input type="text" id="command-input" placeholder="What do you do?" autofocus />
+    <button id="submit-btn">Send</button>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script>
+    const input = document.getElementById('command-input');
+    const logBox = document.getElementById('log');
+    const submitBtn = document.getElementById('submit-btn');
+    const inputBox = document.getElementById('input-box');
+
+    let playerName = localStorage.getItem('player_name') || '';
+    let messageHistory = [
+      {
+        role: 'system',
+        content: `
+You are a grounded, cinematic Dungeon Master for a dark Westerosi escape scenario. Your tone is tense, vivid, and realistic. Keep all narration in 1–2 sentence paragraphs, spaced clearly.
+
+Opening Scene (first response only):
+- The riot has already started inside the dungeons of Harrenhal.
+- Fires are breaking out, prisoners and guards are killing each other.
+- The player is chained, but chaos offers a chance to escape (e.g. a dropped key or broken shackle).
+- End your message with: What do you do to escape?
+
+Rules:
+- Only ask for a dice roll when the player attempts a risky, uncertain action (e.g. persuasion, sneaking past danger, picking a lock, combat).
+- Do not roll for basic actions (running from empty rooms, looking around).
+- When a roll is required, say: "Roll 1dX to [brief reason]".
+- After asking for a roll, wait for the player to respond with their result (e.g. "I rolled a total of 6.") before narrating the outcome.
+
+Never break character. Never explain the rules. Always stay in-world.
+        `.trim()
+      }
+    ];
+
+    function saveHistory() {
+      localStorage.setItem('gpt_chat_log', JSON.stringify(messageHistory));
+      localStorage.setItem('player_name', playerName);
+    }
+
+    function logMessage(text, type = 'dm') {
+      const paragraphs = text.split(/\n{2,}/g);
+      for (const paragraph of paragraphs) {
+        const msg = document.createElement('div');
+        msg.className = `msg ${type}`;
+        const styled = paragraph.replace(/"([^"]*)"/g, '<i>"$1"</i>');
+        msg.innerHTML = (type === 'player' ? `> ${paragraph}` : styled);
+        logBox.appendChild(msg);
+      }
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function addInlineButtons(buttons) {
+      const container = document.createElement('div');
+      container.className = 'btn-row';
+      buttons.forEach(btn => {
+        const el = document.createElement('button');
+        el.className = 'btn-inline';
+        el.textContent = btn.label;
+        el.onclick = btn.action;
+        container.appendChild(el);
+      });
+      logBox.appendChild(container);
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    function typeWriterParagraphs(text, callback) {
+      const paragraphs = text.split(/\n{2,}/g);
+      let i = 0;
+      function typeNext() {
+        if (i < paragraphs.length) {
+          const p = document.createElement('div');
+          p.className = 'msg dm';
+          logBox.appendChild(p);
+          let j = 0;
+          function typeChar() {
+            if (j < paragraphs[i].length) {
+              p.innerHTML += paragraphs[i].charAt(j++);
+              logBox.scrollTop = logBox.scrollHeight;
+              setTimeout(typeChar, 12);
+            } else {
+              p.innerHTML = p.innerHTML.replace(/"([^"]*)"/g, '<i>"$1"</i>');
+              i++;
+              setTimeout(typeNext, 300);
+            }
+          }
+          typeChar();
+        } else if (callback) {
+          callback();
+        }
+      }
+      typeNext();
+    }
+
+    async function sendToGPT(playerInput) {
+      messageHistory.push({ role: 'user', content: playerInput });
+      saveHistory();
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GPT_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: GPT_MODEL,
+          messages: messageHistory,
+          temperature: 0.8
+        })
+      });
+
+      const data = await response.json();
+      const reply = data.choices[0].message.content;
+      messageHistory.push({ role: 'assistant', content: reply });
+      saveHistory();
+
+      typeWriterParagraphs(reply, () => {
+        rollDiceFromText(reply);
+      });
+    }
+
+    function autoSendRollResult(total) {
+      const resultText = `I rolled a total of ${total}.`;
+      logMessage(resultText, 'player');
+      messageHistory.push({ role: 'user', content: resultText });
+      saveHistory();
+      sendToGPT(resultText);
+    }
+
+    function rollDiceFromText(text) {
+      const regex = /roll (\d+)d(\d+)/i;
+      const match = text.match(regex);
+      if (match) {
+        const [_, count, sides] = match.map(Number);
+        const rolls = [];
+        for (let i = 0; i < count; i++) {
+          rolls.push(Math.floor(Math.random() * sides) + 1);
+        }
+        const total = rolls.reduce((a, b) => a + b, 0);
+        logMessage(`🎲 You rolled: ${rolls.join(', ')} (Total: ${total})`, 'dm');
+        autoSendRollResult(total);
+      }
+    }
+
+    function handleInput() {
+      const text = input.value.trim();
+      if (!text) return;
+      logMessage(text, 'player');
+      sendToGPT(text);
+      input.value = '';
+    }
+
+    submitBtn.addEventListener('click', handleInput);
+    input.addEventListener('keypress', e => {
+      if (e.key === 'Enter') handleInput();
+    });
+
+    function beginNewGameFlow() {
+      localStorage.clear();
+      logMessage("What is your name?", 'dm');
+      inputBox.style.display = 'flex';
+      input.placeholder = "Enter your name...";
+      submitBtn.onclick = () => {
+        playerName = input.value.trim();
+        if (!playerName) return;
+        logMessage(playerName, 'player');
+        input.value = '';
+        input.placeholder = "What do you do?";
+        inputBox.style.display = 'flex';
+        sendToGPT("Start the session.");
+        document.getElementById('submit-btn').onclick = handleInput;
+      };
+    }
+
+    function showWelcomePrompt() {
+      if (localStorage.getItem('gpt_chat_log') && playerName) {
+        logMessage(`Welcome back, ${playerName}.\n\nWould you like to continue your journey or start anew?`, 'dm');
+        addInlineButtons([
+          { label: 'Continue', action: resumeGame },
+          { label: 'New Game', action: beginNewGameFlow }
+        ]);
+      } else {
+        logMessage("Welcome, traveler.\n\nAre you ready to begin a new journey?", 'dm');
+        addInlineButtons([
+          { label: 'Start New Game', action: beginNewGameFlow }
+        ]);
+      }
+    }
+
+    function resumeGame() {
+      try {
+        const saved = localStorage.getItem('gpt_chat_log');
+        messageHistory = JSON.parse(saved);
+        messageHistory.forEach(msg => {
+          if (msg.role === 'user') {
+            logMessage(msg.content, 'player');
+          } else if (msg.role === 'assistant') {
+            logMessage(msg.content, 'dm');
+          }
+        });
+        inputBox.style.display = 'flex';
+      } catch (e) {
+        console.warn("Failed to resume saved game.");
+        beginNewGameFlow();
+      }
+    }
+
+    showWelcomePrompt();
+  </script>
+</body>
+</html>
